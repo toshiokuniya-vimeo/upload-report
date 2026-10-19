@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vimeo Upload Report</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --text: #1a1f24; --muted: #5f6b76;
+    --border: #dde2e7; --accent: #0d6ecd; --accent-text: #ffffff;
+    --ok: #1f7a3d; --err: #b42318; --warn-bg: #fff6e5; --warn-text: #7a4b00;
+    --row-alt: #f9fafb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121518; --surface: #1b1f24; --text: #e6e9ec; --muted: #9aa5b1;
+      --border: #2e353d; --accent: #4ea3f5; --accent-text: #0b1220;
+      --ok: #5cc98a; --err: #ff7b72; --warn-bg: #3a2c10; --warn-text: #f5d08a;
+      --row-alt: #1f242a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab { appearance: none; border: 0; background: none; color: var(--muted); padding: 10px 16px;
+    font: inherit; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:disabled { opacity: .45; cursor: default; }
+  .panel[hidden] { display: none; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .full { grid-column: 1 / -1; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  input[type=text], input[type=password], input[type=date] {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg); color: var(--text); font: inherit; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tokenrow { display: flex; gap: 8px; }
+  .tokenrow input { flex: 1; }
+  .btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    padding: 9px 16px; border-radius: 7px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  .status { margin-top: 16px; padding: 10px 12px; border-radius: 7px; background: var(--bg);
+    border: 1px solid var(--border); white-space: pre-wrap; display: none; }
+  .status.show { display: block; }
+  .status.err { color: var(--err); border-color: var(--err); }
+  .status.ok { color: var(--ok); }
+  .note { background: var(--warn-bg); color: var(--warn-text); border-radius: 7px; padding: 10px 12px; font-size: 13px; margin-top: 16px; }
+  .summary { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+  .summary div b { display: block; font-size: 18px; }
+  .summary div span { color: var(--muted); font-size: 12px; }
+  .tablewrap { overflow: auto; max-height: 65vh; border: 1px solid var(--border); border-radius: 8px; margin-top: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--surface); z-index: 1; white-space: nowrap; }
+  tbody tr:nth-child(even) td { background: var(--row-alt); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.nowrap { white-space: nowrap; }
+  a { color: var(--accent); }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Vimeo Upload Report</h1>
+  <p class="sub">Lists videos uploaded within a date range (New Zealand time) and exports them to Excel.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-settings" aria-selected="true" aria-controls="panel-settings">1. Settings</button>
+    <button class="tab" role="tab" id="tab-report" aria-selected="false" aria-controls="panel-report" disabled>2. Report</button>
+  </div>
+
+  <!-- Settings -->
+  <section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings">
+    <div class="card">
+      <div class="grid">
+        <div class="full">
+          <label for="token">Vimeo API access token</label>
+          <div class="tokenrow">
+            <input type="password" id="token" autocomplete="off" spellcheck="false" placeholder="Paste a personal access token (scopes: public, private)">
+            <button class="btn" id="toggleToken" type="button">Show</button>
+          </div>
+          <div class="hint">Sent only to api.vimeo.com. Never saved — it is cleared when you close this page.</div>
+        </div>
+        <div>
+          <label for="from">From (NZ time)</label>
+          <input type="date" id="from">
+          <div class="hint">From 00:00:00 on this date</div>
+        </div>
+        <div>
+          <label for="to">To (NZ time)</label>
+          <input type="date" id="to">
+          <div class="hint">Up to 23:59:59 on this date</div>
+        </div>
+        <div class="full">
+          <label for="userId">User ID <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          <input type="text" id="userId" spellcheck="false" placeholder="Leave blank to use the account that owns the token">
+          <div class="hint">Only needed to report on a different user's videos that this token can access.</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="generate" type="button">Generate report</button>
+        <button class="btn" id="cancel" type="button" hidden>Cancel</button>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+      <div class="note">Dates and times use New Zealand time (Pacific/Auckland), including daylight saving time (NZDT, UTC+13 / NZST, UTC+12).</div>
+    </div>
+  </section>
+
+  <!-- Report -->
+  <section class="panel" id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden>
+    <div class="card">
+      <div class="summary" id="summary"></div>
+      <div class="actions" style="margin-top:0">
+        <button class="btn primary" id="dlXlsx" type="button">Download Excel (.xlsx)</button>
+        <button class="btn" id="dlCsv" type="button">Download CSV</button>
+        <button class="btn" id="back" type="button">Back to settings</button>
+      </div>
+      <div class="tablewrap" id="tablewrap"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const TZ = 'Pacific/Auckland';
+  const API = 'https://api.vimeo.com';
+  const FIELDS = 'uri,name,link,created_time,duration,privacy.view,user.name,parent_folder.name';
+  const HEADERS = ['Video Name', 'Uploaded By', 'Folder(s)', 'Uploaded Date (NZ Time)', 'Duration (s)', 'Privacy', 'Link'];
+
+  const $ = id => document.getElementById(id);
+  let report = null;        // { rows, meta }
+  let controller = null;
+
+  // ---------- New Zealand time helpers ----------
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  });
+  function nzParts(ms) {
+    const p = {};
+    for (const x of fmt.formatToParts(new Date(ms))) p[x.type] = x.value;
+    if (p.hour === '24') p.hour = '00';
+    return p;
+  }
+  function nzOffset(ms) {
+    const p = nzParts(ms);
+    const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+    return asUtc - Math.floor(ms / 1000) * 1000;
+  }
+  // NZ wall-clock midnight of y-m-d -> UTC epoch ms
+  function nzMidnightToUtc(y, m, d) {
+    const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
+    let t = guess - nzOffset(guess);
+    t = guess - nzOffset(t);
+    return t;
+  }
+  function formatNz(ms) {
+    const p = nzParts(ms);
+    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+  }
+  function nzTodayStr() {
+    const p = nzParts(Date.now());
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+  function parseDateInput(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || '');
+    return m ? [+m[1], +m[2], +m[3]] : null;
+  }
+  function addDays([y, m, d], n) {
+    const dt = new Date(Date.UTC(y, m - 1, d + n));
+    return [dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate()];
+  }
+  const ymd = ([y, m, d]) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  // ---------- UI ----------
+  function selectTab(name) {
+    const s = name === 'settings';
+    $('tab-settings').setAttribute('aria-selected', s);
+    $('tab-report').setAttribute('aria-selected', !s);
+    $('panel-settings').hidden = !s;
+    $('panel-report').hidden = s;
+  }
+  function setStatus(msg, kind) {
+    const el = $('status');
+    el.textContent = msg;
+    el.className = 'status show' + (kind ? ' ' + kind : '');
+  }
+  function setBusy(busy) {
+    $('generate').disabled = busy;
+    $('cancel').hidden = !busy;
+    ['token', 'from', 'to', 'userId'].forEach(id => $(id).disabled = busy);
+  }
+
+  $('tab-settings').onclick = () => selectTab('settings');
+  $('tab-report').onclick = () => { if (report) selectTab('report'); };
+  $('back').onclick = () => selectTab('settings');
+  $('toggleToken').onclick = () => {
+    const t = $('token');
+    t.type = t.type === 'password' ? 'text' : 'password';
+    $('toggleToken').textContent = t.type === 'password' ? 'Show' : 'Hide';
+  };
+  $('cancel').onclick = () => controller && controller.abort();
+
+  // defaults: last 30 days in NZ time
+  const today = parseDateInput(nzTodayStr());
+  $('to').value = ymd(today);
+  $('from').value = ymd(addDays(today, -29));
+
+  // ---------- API ----------
+  const sleep = (ms, signal) => new Promise((res, rej) => {
+    const t = setTimeout(res, ms);
+    signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Aborted', 'AbortError')); }, { once: true });
+  });
+
+  async function apiGet(path, token, signal) {
+    const url = path.startsWith('http') ? path : API + path;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      let res;
+      try {
+        res = await fetch(url, {
+          headers: { 'Authorization': 'bearer ' + token, 'Accept': 'application/vnd.vimeo.*+json;version=3.4' },
+          signal
+        });
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        if (attempt < 2) { await sleep(2000, signal); continue; }
+        throw new Error('Could not reach the Vimeo API (network error or blocked by the browser).\n' +
+          'Check your internet connection, VPN/proxy, or try another browser.');
+      }
+      if (res.ok) return res.json();
+      if (res.status === 429 || res.status >= 500) {
+        let wait = 5000 * (attempt + 1);
+        const reset = res.headers.get('X-RateLimit-Reset');
+        if (res.status === 429 && reset) {
+          const r = Date.parse(reset);
+          if (!isNaN(r)) wait = Math.max(1000, r - Date.now() + 1000);
+        } else if (res.status === 429) wait = 60000;
+        setStatus(`Vimeo API ${res.status === 429 ? 'rate limit reached' : 'temporary error'} — retrying in ${Math.ceil(wait / 1000)}s…`);
+        await sleep(wait, signal);
+        continue;
+      }
+      let detail = '';
+      try { const j = await res.json(); detail = j.developer_message || j.error || ''; } catch (_) {}
+      if (res.status === 401) throw new Error('The access token was rejected (401). Check that it is correct and has not been revoked.');
+      if (res.status === 403) throw new Error('Access denied (403). The token may be missing the "private" scope or access to this user.' + (detail ? '\n' + detail : ''));
+      if (res.status === 404) throw new Error('Not found (404). Check the User ID.' + (detail ? '\n' + detail : ''));
+      throw new Error(`Vimeo API error ${res.status}.` + (detail ? '\n' + detail : ''));
+    }
+    throw new Error('The Vimeo API kept failing after several retries. Please try again later.');
+  }
+
+  $('generate').onclick = async () => {
+    const token = $('token').value.trim();
+    const f = parseDateInput($('from').value);
+    const t = parseDateInput($('to').value);
+    const userId = $('userId').value.trim().replace(/^\/?users\//, '');
+    if (!token) return setStatus('Please enter an access token.', 'err');
+    if (!f || !t) return setStatus('Please enter both From and To dates.', 'err');
+    if (ymd(f) > ymd(t)) return setStatus('"From" must be on or before "To".', 'err');
+    if (userId && !/^[A-Za-z0-9_-]+$/.test(userId)) return setStatus('User ID may only contain letters, numbers, "-" and "_".', 'err');
+
+    const fromMs = nzMidnightToUtc(...f);
+    const toMsExcl = nzMidnightToUtc(...addDays(t, 1));
+    const base = userId ? `/users/${encodeURIComponent(userId)}` : '/me';
+
+    controller = new AbortController();
+    const signal = controller.signal;
+    setBusy(true);
+    setStatus('Checking access token…');
+
+    try {
+      const me = await apiGet(`${base}?fields=name,uri`, token, signal);
+      const rows = [];
+      let next = `${base}/videos?sort=date&direction=desc&per_page=100&fields=${encodeURIComponent(FIELDS)}`;
+      let scanned = 0, total = null, page = 0, done = false;
+
+      while (next && !done) {
+        const data = await apiGet(next, token, signal);
+        page++;
+        if (total === null) total = data.total;
+        for (const v of data.data || []) {
+          scanned++;
+          const ms = Date.parse(v.created_time);
+          if (isNaN(ms)) continue;
+          if (ms < fromMs) { done = true; break; }   // sorted newest first — everything after this is older
+          if (ms >= toMsExcl) continue;
+          rows.push({
+            name: v.name || '',
+            user: (v.user && v.user.name) || '',
+            folder: (v.parent_folder && v.parent_folder.name) || '',
+            dateMs: ms,
+            date: formatNz(ms),
+            duration: typeof v.duration === 'number' ? v.duration : '',
+            privacy: (v.privacy && v.privacy.view) || '',
+            link: v.link || ''
+          });
+        }
+        next = data.paging && data.paging.next;
+        setStatus(`Scanning videos… ${scanned.toLocaleString()} checked` +
+          (total ? ` of up to ${total.toLocaleString()}` : '') + ` · ${rows.length.toLocaleString()} in range`);
+      }
+
+      rows.sort((a, b) => a.dateMs - b.dateMs); // oldest first, like the original report
+      report = {
+        rows,
+        meta: {
+          account: me.name || '', accountUri: me.uri || '',
+          from: ymd(f), to: ymd(t), generated: formatNz(Date.now()), scanned
+        }
+      };
+      renderReport();
+      setStatus(`Done. ${rows.length.toLocaleString()} video(s) uploaded between ${ymd(f)} and ${ymd(t)} (NZ time).`, 'ok');
+      $('tab-report').disabled = false;
+      selectTab('report');
+    } catch (e) {
+      if (e.name === 'AbortError') setStatus('Cancelled.', 'err');
+      else setStatus(e.message || String(e), 'err');
+    } finally {
+      setBusy(false);
+      controller = null;
+    }
+  };
+
+  // ---------- Report rendering ----------
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function renderReport() {
+    const { rows, meta } = report;
+    const totalSec = rows.reduce((a, r) => a + (+r.duration || 0), 0);
+    const hrs = (totalSec / 3600).toFixed(1);
+    $('summary').innerHTML = `
+      <div><b>${rows.length.toLocaleString()}</b><span>Videos</span></div>
+      <div><b>${hrs}</b><span>Total hours</span></div>
+      <div><b>${esc(meta.from)} → ${esc(meta.to)}</b><span>Period (NZ time)</span></div>
+      <div><b>${esc(meta.account || '—')}</b><span>Account</span></div>`;
+    if (!rows.length) {
+      $('tablewrap').innerHTML = '<div class="empty">No videos were uploaded in this period.</div>';
+      $('dlXlsx').disabled = $('dlCsv').disabled = true;
+      return;
+    }
+    $('dlXlsx').disabled = $('dlCsv').disabled = false;
+    const body = rows.map(r => `<tr>
+      <td>${esc(r.name)}</td><td>${esc(r.user)}</td><td>${esc(r.folder)}</td>
+      <td class="nowrap">${esc(r.date)}</td><td class="num">${esc(r.duration)}</td>
+      <td>${esc(r.privacy)}</td><td class="nowrap">${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">${esc(r.link)}</a>` : ''}</td></tr>`).join('');
+    $('tablewrap').innerHTML = `<table><thead><tr>${HEADERS.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  function fileBase() {
+    const m = report.meta;
+    return `vimeo_upload_report_${m.from}_to_${m.to}`;
+  }
+  function download(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  $('dlCsv').onclick = () => {
+    const q = v => {
+      const s = String(v);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const lines = [HEADERS.map(q).join(',')].concat(report.rows.map(r =>
+      [r.name, r.user, r.folder, r.date, r.duration, r.privacy, r.link].map(q).join(',')));
+    download(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), fileBase() + '.csv');
+  };
+
+  $('dlXlsx').onclick = () => {
+    download(buildXlsx(report), fileBase() + '.xlsx');
+  };
+
+  // ---------- Minimal XLSX writer (no external libraries) ----------
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(buf) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zip(files) { // files: [{name, data: Uint8Array}] — stored (no compression)
+    const enc = new TextEncoder();
+    const parts = [], central = [];
+    let offset = 0;
+    const d = new Date();
+    const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    for (const f of files) {
+      const name = enc.encode(f.name);
+      const crc = crc32(f.data), size = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(8, 0, true); lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true);
+      lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), name, f.data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+      ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, dosTime, true);
+      ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true); ch.setUint32(20, size, true);
+      ch.setUint32(24, size, true); ch.setUint16(28, name.length, true);
+      ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + size;
+    }
+    const cdSize = central.reduce((a, p) => a + p.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, new Uint8Array(end.buffer)],
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+
+  const xmlEsc = s => String(s)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  function colName(i) { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  function cell(ref, v, style) {
+    const s = style ? ` s="${style}"` : '';
+    if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${s}><v>${v}</v></c>`;
+    if (v === '' || v == null) return '';
+    return `<c r="${ref}" t="inlineStr"${s}><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+  }
+  function sheetXml(rows, widths, opts = {}) {
+    const n = rows.length;
+    const lastCol = colName(widths.length - 1);
+    let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">';
+    x += opts.freeze
+      ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+      : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
+    x += '<cols>' + widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>';
+    x += '<sheetData>';
+    rows.forEach((r, ri) => {
+      x += `<row r="${ri + 1}">`;
+      r.forEach((v, ci) => {
+        const style = ri === 0 && opts.boldHeader ? 1 : (opts.linkCol === ci && ri > 0 ? 2 : (opts.boldFirstCol && ci === 0 ? 1 : 0));
+        x += cell(colName(ci) + (ri + 1), v, style);
+      });
+      x += '</row>';
+    });
+    x += '</sheetData>';
+    if (opts.autoFilter && n > 1) x += `<autoFilter ref="A1:${lastCol}${n}"/>`;
+    if (opts.linkCol != null && n > 1) {
+      x += '<hyperlinks>';
+      for (let ri = 1; ri < n; ri++) if (rows[ri][opts.linkCol]) x += `<hyperlink ref="${colName(opts.linkCol)}${ri + 1}" r:id="rId${ri}"/>`;
+      x += '</hyperlinks>';
+    }
+    return x + '</worksheet>';
+  }
+
+  function buildXlsx({ rows, meta }) {
+    const enc = new TextEncoder();
+    const data = [HEADERS].concat(rows.map(r => [r.name, r.user, r.folder, r.date, r.duration === '' ? '' : Number(r.duration), r.privacy, r.link]));
+    const n = data.length;
+    const sheet1 = sheetXml(data, [60, 22, 24, 22, 13, 12, 42], { freeze: true, boldHeader: true, autoFilter: true, linkCol: 6 });
+    let rels1 = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">';
+    for (let ri = 1; ri < n; ri++) if (data[ri][6]) rels1 += `<Relationship Id="rId${ri}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${xmlEsc(data[ri][6])}" TargetMode="External"/>`;
+    rels1 += '</Relationships>';
+
+    const info = [
+      ['Report', 'Vimeo Upload Report'],
+      ['Account', meta.account],
+      ['Account URI', meta.accountUri],
+      ['Period from (NZ time)', meta.from + ' 00:00:00'],
+      ['Period to (NZ time)', meta.to + ' 23:59:59'],
+      ['Time zone', 'Pacific/Auckland (NZST/NZDT)'],
+      ['Videos in report', rows.length],
+      ['Videos scanned', meta.scanned],
+      ['Generated at (NZ time)', meta.generated],
+      ['Source', 'Vimeo API: GET /videos sorted by upload date (created_time)']
+    ];
+    const sheet2 = sheetXml(info, [26, 60], { boldFirstCol: true });
+
+    const S1 = 'Upload Report', S2 = 'Info';
+    const files = [
+      { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>' },
+      { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+      { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="${S1}" sheetId="1" r:id="rId1"/><sheet name="${S2}" sheetId="2" r:id="rId2"/></sheets>${n > 1 ? `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'${S1}'!$A$1:$G$${n}</definedName></definedNames>` : ''}</workbook>` },
+      { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+      { name: 'xl/styles.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><u/><sz val="11"/><color rgb="FF0563C1"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' },
+      { name: 'xl/worksheets/sheet1.xml', data: sheet1 },
+      { name: 'xl/worksheets/sheet2.xml', data: sheet2 }
+    ];
+    if (n > 1) files.push({ name: 'xl/worksheets/_rels/sheet1.xml.rels', data: rels1 });
+    return zip(files.map(f => ({ name: f.name, data: enc.encode(f.data) })));
+  }
+})();
+</script>
+</body>
+</html>
